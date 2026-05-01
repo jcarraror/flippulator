@@ -44,7 +44,9 @@ static bool storage_int_file_open(
     else if(access_mode & FSAM_READ) furi_string_cat(mode_str, "r");
     else if(access_mode & FSAM_WRITE) furi_string_cat(mode_str, "w");
     if(open_mode & FSOM_OPEN_EXISTING) furi_string_cat(mode_str, "x");
-    if(open_mode & FSOM_OPEN_ALWAYS);
+    if(open_mode & FSOM_OPEN_ALWAYS) {
+        /* The write modes above already create the file when needed. */
+    }
     if(open_mode & FSOM_OPEN_APPEND) furi_string_cat(mode_str, "a");
     if(open_mode & FSOM_CREATE_NEW) {
         FILE* tmp_file = fopen(furi_string_get_cstr(path_str), "r");
@@ -114,6 +116,7 @@ static bool storage_int_file_truncate(void* ctx, File* file) {
 
 static bool storage_int_file_sync(void* ctx, File* file) {
     UNUSED(ctx);
+    UNUSED(file);
     crash(CRASH_UNSUPPORTED_FS_OPERATION, CRASHTEXT_UNSUPPORTED_FS_OPERATION);
     return false;
 }
@@ -187,6 +190,7 @@ static bool storage_int_dir_rewind(void* ctx, File* file) {
 /******************* Common FS Functions *******************/
 
 static FS_Error storage_int_common_stat(void* ctx, const char* path, FileInfo* fileinfo) {
+    UNUSED(ctx);
     FuriString* path_str = furi_string_alloc_set_str("flippulator_sd/int");
     furi_string_cat(path_str, path);
     struct stat st;

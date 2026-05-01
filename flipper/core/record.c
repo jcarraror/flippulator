@@ -21,5 +21,6 @@ void* furi_record_open(const char* name) {
 }
 
 void furi_record_close(const char* name) {
+    (void)name;
     // TODO
 }

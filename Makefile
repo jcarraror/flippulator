@@ -4,7 +4,8 @@ EXT_LIB_ALL = lib/
 #EXT_LIB_u8g2 = lib/u8g2/
 HELPERS = helpers/
 APP = flippulator_app_copy/
-SOURCES = $(shell find $(LIBS) -name "*.c") $(shell find $(LIBS_HAL) -name "*.c") $(shell find $(HELPERS) -name "*.c") $(shell find $(EXT_LIB_ALL) -name "*.c")
+SOURCES_ALL = $(shell find $(LIBS) -name "*.c") $(shell find $(LIBS_HAL) -name "*.c") $(shell find $(HELPERS) -name "*.c") $(shell find $(EXT_LIB_ALL) -name "*.c")
+SOURCES = $(filter-out $(shell find $(EXT_LIB_ALL) -name "test_*.c"), $(SOURCES_ALL))
 SRC_APP = $(shell find $(APP) -name "*.c")
 OBJECTS = ${subst .c,.o,$(SOURCES)} ${subst .c,.o,$(SRC_APP)}
 OUT_DIR = $(shell cat /tmp/flippulator_temp_out_app_dir)
@@ -18,7 +19,9 @@ OUT_ALL = $(OUT_DIR) $(OUT_APP)
 #OUT_LIB_NAME = flipper
 #OUT_LIB = lib$(OUT_LIB_NAME).a
 #CC_PREFIX = gcc -c -Wall# -fPIC
-CC_PREFIX_FINAL = gcc -O2 -Wall -Wno-main -g -m32 -DFLIPPULATOR_APP_ID=\"$(OUT_APP_NAME)\" -D_FLIPPULATOR
+ARCH_FLAGS ?= -m32
+WARN_FLAGS ?= -Wall -Wextra -Wno-main
+CC_PREFIX_FINAL = gcc -O2 $(WARN_FLAGS) -g $(ARCH_FLAGS) -DFLIPPULATOR_APP_ID=\"$(OUT_APP_NAME)\" -D_FLIPPULATOR
 CC_POSTFIX_FINAL =  -lSDL2 -lSDL2_ttf -lm -lbsd
 BUILD_LIB_heatshrink_PATH = lib/heatshrink/
 BUILD_LIB_heatshrink = $(BUILD_LIB_heatshrink_PATH)libheatshrink_static.a $(BUILD_LIB_heatshrink_PATH)libheatshrink_dynamic.a
@@ -36,7 +39,7 @@ $(OUT_DIR): $(OUT_APP) $(SRC_FONT)
 	echo $(CR_TEXT) > $(OUT_CR)
 
 $(OUT_APP):
-	mkdir $(OUT_DIR)
+	mkdir -p $(OUT_DIR)
 	touch $(TIMESTAMPS)
 	if [ ! -s $(TIMESTAMPS) ]; then \
 		echo '{}' > $(TIMESTAMPS); \
@@ -44,12 +47,13 @@ $(OUT_APP):
 #	$(CC_PREFIX_FINAL) $(CC_EXTRA) -I$(LIBS) -I$(LIBS_HAL) -I$(HELPERS) -I$(EXT_LIB_ALL) $(SRC_APP) $(SOURCES) -lSDL2 -lSDL2_ttf -lm -lbsd -o $(OUT_APP)
 	for file in $(SRC_APP) $(SOURCES); do \
 		jsout=$$(node compile.js $$file); \
-		objname=$$(echo $$jsout | jq -r '.obj'); \
-		dateextr=$$(echo $$jsout | jq -r '.time'); \
-		if [ $$objname ]; then \
-			$(CC_PREFIX_FINAL) -c $(CC_EXTRA) -I$(LIBS) -I$(LIBS_HAL) -I$(HELPERS) -I$(EXT_LIB_ALL) "$$file" -o $$objname $(CC_POSTFIX_FINAL); \
-			echo CC: $$file = $$objname; \
-			jq '.["'$$file'"] = "'$$dateextr'"' $(TIMESTAMPS) > $(TIMESTAMPS_TMP); mv $(TIMESTAMPS_TMP) $(TIMESTAMPS); \
+		if [ -n "$$jsout" ]; then \
+			objname=$$(echo $$jsout | jq -r '.obj'); \
+			dateextr=$$(echo $$jsout | jq -r '.time'); \
+			$(CC_PREFIX_FINAL) -c $(CC_EXTRA) -I$(LIBS) -I$(LIBS_HAL) -I$(HELPERS) -I$(EXT_LIB_ALL) "$$file" -o $$objname $(CC_POSTFIX_FINAL) && \
+			echo CC: $$file = $$objname && \
+			jq '.["'$$file'"] = "'$$dateextr'"' $(TIMESTAMPS) > $(TIMESTAMPS_TMP) && \
+			mv $(TIMESTAMPS_TMP) $(TIMESTAMPS); \
 		fi; \
 	done
 	$(CC_PREFIX_FINAL) $(OBJECTS) -o $(OUT_APP) $(CC_POSTFIX_FINAL)
@@ -66,11 +70,11 @@ $(OUT_APP):
 #	$(CC_PREFIX) -I$(HELPERS) -g $< -o $@
 
 clean:
-	rm -rf $(OUT_DIR) $(APP) $(WASM_DIR)
+	rm -rf $(OUT_DIR) $(APP) $(WASM_DIR) $(TIMESTAMPS)
+	find . -name "*.o" -delete
 
 $(WASM_DIR):
 	mkdir $(WASM_DIR)
 
 #wasm: $(WASM_DIR)
 #	emcc -O2 $(SOURCES) $(SRC_APP) $(CC_EXTRA) -g -s WASM=1 -s USE_SDL=2 -s USE_SDL_TTF=2 --preload-file $(SRC_FONT) -o $(WASM_DIR)index.html -I$(LIBS) -I$(LIBS_HAL) -I$(EXT_LIB_ALL) -I$(HELPERS)
-

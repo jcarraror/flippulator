@@ -7,7 +7,15 @@
     #include <unistd.h>
 #endif
 #include <SDL2/SDL.h>
-#include <SDL2/SDL_ttf.h>
+#if defined(__has_include)
+    #if __has_include(<SDL2/SDL_ttf.h>)
+        #include <SDL2/SDL_ttf.h>
+        #define FLIPPULATOR_HAS_SDL_TTF 1
+    #endif
+#endif
+#ifndef FLIPPULATOR_HAS_SDL_TTF
+    #define FLIPPULATOR_HAS_SDL_TTF 0
+#endif
 #include <math.h>
 #include <flippulator_defines.h>
 #include <termios.h>
@@ -29,8 +37,10 @@ static SDL_Renderer* renderer;
 static SDL_Window* window;
 static SDL_Rect rect;
 static SDL_Event event;
+#if FLIPPULATOR_HAS_SDL_TTF
 static TTF_Font* HaxrCorp4089;
-static SDL_Color Black = { 0x00, 0x00, 0x00 };
+static const SDL_Color Black = {0x00, 0x00, 0x00, 0xff};
+#endif
 static SDL_AudioDeviceID audio_device;
 static SDL_AudioSpec audio_spec;
 static bool running = true;
@@ -54,7 +64,7 @@ void exit_sdl(uint8_t code) {
     exit(code);
 }
 
-static float sine(uint16_t* snd) {
+static float sine(void) {
     float to_ret = sin(s_time);
 
     s_time += global_sound_freq * M_PI * 2 / AUDIO_FREQUENCY;
@@ -75,9 +85,9 @@ static void sound_cb(void* ctx, uint8_t* stream, int len) {
             continue;
         }
         if(AUDIO_WAVE_TYPE) {
-            snd[i] = sine(snd) > 0 ? vol_l : -vol_l;
+            snd[i] = sine() > 0 ? vol_l : -vol_l;
         } else {
-            snd[i] = vol_l * sine(snd);
+            snd[i] = vol_l * sine();
         }
     }
 }
@@ -158,15 +168,23 @@ static void* handle_input(void* _view_port) {
     return NULL;
 }
 
-static void renderMessage(
-    char* msg,
-    int x,
-    int y,
-    int width
-) {
+static void renderMessage(const char* msg, int x, int y) {
+#if FLIPPULATOR_HAS_SDL_TTF
+    if(HaxrCorp4089 == NULL || msg == NULL) {
+        return;
+    }
+
     SDL_Surface* surfaceMessage = TTF_RenderText_Solid(HaxrCorp4089, msg, Black);
+    if(surfaceMessage == NULL) {
+        return;
+    }
+
     SDL_Texture* message = SDL_CreateTextureFromSurface(renderer, surfaceMessage);
-    SDL_Rect message_rect = { x, y, 0, 0 };
+    SDL_Rect message_rect = {x, y, 0, 0};
+    if(message == NULL) {
+        SDL_FreeSurface(surfaceMessage);
+        return;
+    }
 
     TTF_SizeText(HaxrCorp4089, msg, &message_rect.w, &message_rect.h);
 
@@ -177,6 +195,11 @@ static void renderMessage(
 
     SDL_FreeSurface(surfaceMessage);
     SDL_DestroyTexture(message);
+#else
+    UNUSED(msg);
+    UNUSED(x);
+    UNUSED(y);
+#endif
 }
 
 // TODO: multiple viewports support
@@ -197,15 +220,22 @@ static void* handle_gui(void* _view_port) {
         SDL_RenderDrawRect(renderer, &rect);
         SDL_RenderFillRect(renderer, &rect);
 
-        char* msg_vibro = malloc(sizeof(char) * 11);
-        snprintf(msg_vibro, 11, "Vibro: %s", global_vibro_on ? "On" : "Off");
-        renderMessage(msg_vibro, 20, 340, 100);
-        char* msg_led = malloc(sizeof(char) * 13);
-        snprintf(msg_led, 13, "LED: #%02x%02x%02x", global_led[0], global_led[1], global_led[2]);
-        renderMessage(msg_led, 20, 380, 100);
-        char* msg_bl = malloc(sizeof(char) * 16);
-        snprintf(msg_bl, 16, "Backlight: 0x%02x", global_backlight_brightness);
-        renderMessage(msg_bl, 20, 420, 100);
+        char msg_vibro[16];
+        char msg_led[16];
+        char msg_bl[18];
+
+        snprintf(msg_vibro, sizeof(msg_vibro), "Vibro: %s", global_vibro_on ? "On" : "Off");
+        renderMessage(msg_vibro, 20, 340);
+        snprintf(
+            msg_led,
+            sizeof(msg_led),
+            "LED: #%02x%02x%02x",
+            global_led[0],
+            global_led[1],
+            global_led[2]);
+        renderMessage(msg_led, 20, 380);
+        snprintf(msg_bl, sizeof(msg_bl), "Backlight: 0x%02x", global_backlight_brightness);
+        renderMessage(msg_bl, 20, 420);
 
         for(uint8_t x = 0; x < view_port->width / 8; x++) // Tile X
             for(uint8_t y = 0; y < view_port->height / 8; y++) // Tile Y
@@ -238,9 +268,10 @@ void gui_add_view_port(Gui* gui, ViewPort* view_port, GuiLayer layer) {
     gui->view_port = view_port;
     view_port->gui = gui;
 
+#if FLIPPULATOR_HAS_SDL_TTF
     TTF_Init();
-
     HaxrCorp4089 = TTF_OpenFont("haxrcorp-4089.ttf", FLIPPULATOR_FONT_SIZE);
+#endif
 
     SDL_SetHint(SDL_HINT_RENDER_DRIVER, "software");
     SDL_Init(SDL_INIT_VIDEO);
@@ -268,6 +299,8 @@ void gui_add_view_port(Gui* gui, ViewPort* view_port, GuiLayer layer) {
     pthread_create(&input_loop_id, NULL, input_loop, view_port);
 }
 void gui_remove_view_port(Gui* gui, ViewPort* view_port) {
+    UNUSED(gui);
+    UNUSED(view_port);
     // TODO
 }
 

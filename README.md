@@ -12,6 +12,24 @@ Based on [Flipper Zero Firmware](https://github.com/flipperdevices/flipperzero-f
 A linux system\
 Packages `make`, `gcc`, `libsdl2-dev:i386`, `gcc-12-multilib` (or an alternative that's compatible with your current gcc version), `libbsd-dev:i386`
 
+## 32-bit Host Setup
+This project is expected to build as a 32-bit Linux binary.
+
+On Debian/Ubuntu-style systems, the helper below can prepare the host:
+
+```sh
+./scripts/setup_32bit_host.sh
+```
+
+That script:
+- Checks whether `i386` is enabled as a foreign architecture
+- Checks whether the required packages are installed
+- Prints the exact `apt` commands needed when something is missing
+
+```sh
+./scripts/setup_32bit_host.sh --install
+```
+
 ## Usage
 `npm start` will generate the `out_<app name>/<app name>` executable.
 

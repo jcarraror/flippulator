@@ -1,6 +1,14 @@
 #pragma once
 #include <furi.h>
-#include <bsd/string.h>
+#if defined(__has_include)
+    #if __has_include(<bsd/string.h>)
+        #include <bsd/string.h>
+        #define FLIPPULATOR_HAS_BSD_STRING 1
+    #endif
+#endif
+#ifndef FLIPPULATOR_HAS_BSD_STRING
+    #define FLIPPULATOR_HAS_BSD_STRING 0
+#endif
 
 #ifdef __cplusplus
 extern "C" {

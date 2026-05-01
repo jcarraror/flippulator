@@ -30,8 +30,8 @@ void canvas_free(Canvas* canvas) {
 }
 
 void canvas_commit(Canvas* canvas) {
+    UNUSED(canvas);
     // TODO: two framebuffers, one is final, the other one is temp
-    return;
 }
 
 uint8_t* canvas_get_buffer(Canvas* canvas) {

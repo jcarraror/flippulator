@@ -2,6 +2,10 @@
 #include "string.h"
 #include <limits.h>
 
+#ifndef FLIPPULATOR_APP_ID
+#define FLIPPULATOR_APP_ID "flippulator"
+#endif
+
 #define THREADS_MAX 1024
 
 static uint32_t flags_g;
@@ -55,7 +59,7 @@ static void furi_thread_set_state(FuriThread* thread, FuriThreadState state) {
 }
 
 FuriThread* furi_thread_alloc() {
-    FuriThread* thread = malloc(sizeof(FuriThread));
+    FuriThread* thread = calloc(1, sizeof(FuriThread));
 
     thread->task_handle = (TaskHandle_t)SIZE_MAX;
 
@@ -153,6 +157,7 @@ void furi_thread_set_priority(FuriThread* thread, FuriThreadPriority priority) {
 }
 
 void furi_thread_set_current_priority(FuriThreadPriority priority) {
+    UNUSED(priority);
     // do nothing
 }
 
@@ -178,16 +183,13 @@ FuriThreadState furi_thread_get_state(FuriThread* thread) {
     return thread->state;
 }
 
-typedef struct {
-    FuriThreadCallback cb;
-    void* ctx;
-} ThreadCbPlusCtx;
-
-/*static void* run(void* ctx_) {
-    ThreadCbPlusCtx* ctx = ctx_;
-    ctx->cb(ctx->ctx);
+static void* furi_thread_body(void* ctx_) {
+    FuriThread* thread = ctx_;
+    furi_thread_set_state(thread, FuriThreadStateRunning);
+    thread->ret = thread->callback(thread->context);
+    furi_thread_set_state(thread, FuriThreadStateStopped);
     return NULL;
-}*/
+}
 
 void furi_thread_start(FuriThread* thread) {
     furi_assert(thread);
@@ -198,22 +200,20 @@ void furi_thread_start(FuriThread* thread) {
     furi_thread_set_state(thread, FuriThreadStateStarting);
 
     pthread_t thread_id;
-    // ThreadCbPlusCtx ctx = { thread->callback, thread->context };
-    // pthread_create(&thread_id, NULL, run, &ctx);
-    pthread_create(&thread_id, NULL, (void *(*)(void *))thread->callback, thread->context);
+    pthread_create(&thread_id, NULL, furi_thread_body, thread);
     thread->task_handle = (TaskHandle_t)thread_id;
 
     furi_check(thread->task_handle);
 }
 
 void furi_thread_cleanup_tcb_event(TaskHandle_t task) {
+    UNUSED(task);
     // do nothing
 }
 
 bool furi_thread_join(FuriThread* thread) {
     // printf("0x%lx\n", (unsigned long)thread->task_handle);
     int32_t res = (int32_t)pthread_join((pthread_t)thread->task_handle, NULL);
-    thread->ret = res;
     return res == 0;
 }
 
@@ -285,6 +285,7 @@ uint32_t furi_thread_flags_get(void) {
 }
 
 uint32_t furi_thread_flags_wait(uint32_t flags, uint32_t options, uint32_t timeout) {
+    UNUSED(flags);
     UNUSED(options);
     UNUSED(timeout);
     return flags_g;

@@ -95,6 +95,7 @@ void view_port_input_callback_set(ViewPort* view_port, ViewPortInputCallback cal
 }
 
 void view_port_update(ViewPort* view_port) {
+    UNUSED(view_port);
     #ifdef FLIPPULATOR_USES_WEBASSEMBLY
     furi_delay_us(1);
     #endif

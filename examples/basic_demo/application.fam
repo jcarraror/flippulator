@@ -1,0 +1,7 @@
+App(
+    appid="basic_demo",
+    apptype=FlipperAppType.EXTERNAL,
+    name="Basic Demo",
+    entry_point="basic_demo_app",
+    stack_size=2 * 1024,
+)

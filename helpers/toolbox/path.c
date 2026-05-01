@@ -1,5 +1,32 @@
 #include "path.h"
 #include <stddef.h>
+#include <string.h>
+
+static size_t path_strlcpy(char* dst, const char* src, size_t dst_size) {
+#if FLIPPULATOR_HAS_BSD_STRING
+    return strlcpy(dst, src != NULL ? src : "", dst_size);
+#else
+    size_t src_len = src != NULL ? strlen(src) : 0U;
+
+    if(dst == NULL || dst_size == 0U) {
+        return src_len;
+    }
+
+    if(src == NULL) {
+        dst[0] = '\0';
+        return 0U;
+    }
+
+    size_t copy_len = src_len;
+    if(copy_len >= dst_size) {
+        copy_len = dst_size - 1U;
+    }
+
+    memcpy(dst, src, copy_len);
+    dst[copy_len] = '\0';
+    return src_len;
+#endif
+}
 
 void path_extract_filename_no_ext(const char* path, FuriString* filename) {
     furi_string_set(filename, path);
@@ -39,7 +66,7 @@ void path_extract_extension(FuriString* path, char* ext, size_t ext_len_max) {
     size_t filename_start = furi_string_search_rchar(path, '/');
 
     if((dot != FURI_STRING_FAILURE) && (filename_start < dot)) {
-        strlcpy(ext, &(furi_string_get_cstr(path))[dot], ext_len_max);
+        path_strlcpy(ext, &(furi_string_get_cstr(path))[dot], ext_len_max);
     }
 }
 

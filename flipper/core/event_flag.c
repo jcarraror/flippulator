@@ -26,6 +26,7 @@ uint32_t furi_event_flag_set(FuriEventFlag* instance, uint32_t flags) {
 
 uint32_t furi_event_flag_clear(FuriEventFlag* instance, uint32_t flags) {
     furi_assert(instance);
+    UNUSED(flags);
     
     (*instance) = 0;
     return 0;

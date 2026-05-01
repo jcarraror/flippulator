@@ -75,8 +75,12 @@ int main() {
         "cwd": process.cwd(),
         "detached": false,
         "stdio": "inherit"
-    }).on("close", () => {
-        console.log("Done!");
-        process.exit(0);
+    }).on("close", code => {
+        if(code === 0) {
+            console.log("Done!");
+        } else {
+            console.error(`Build failed with exit code ${code}.`);
+        }
+        process.exit(code ?? 1);
     });
 })();

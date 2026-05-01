@@ -28,9 +28,9 @@ DEFINE_SRV(notification_middle, notification_srv)
 DEFINE_SRV(storage_middle, storage_srv)
 DEFINE_SRV(cli_middle, cli_srv)
 
-void furi_init() {
-    furi_assert(sizeof(size_t) == 4);
+_Static_assert(sizeof(size_t) == 4, "flippulator expects a 32-bit host build");
 
+void furi_init() {
     printf("Started initializing...\n");
     if(!furi_record_status()) {
         furi_record_init();

@@ -4,6 +4,8 @@
 
 uint8_t u8g2_gpio_and_delay_stm32(u8x8_t* u8x8, uint8_t msg, uint8_t arg_int, void* arg_ptr) {
     UNUSED(u8x8);
+    UNUSED(msg);
+    UNUSED(arg_int);
     UNUSED(arg_ptr);
     /*switch(msg) {
     case U8X8_MSG_GPIO_AND_DELAY_INIT:
@@ -30,6 +32,9 @@ uint8_t u8g2_gpio_and_delay_stm32(u8x8_t* u8x8, uint8_t msg, uint8_t arg_int, vo
 
 uint8_t u8x8_hw_spi_stm32(u8x8_t* u8x8, uint8_t msg, uint8_t arg_int, void* arg_ptr) {
     UNUSED(u8x8);
+    UNUSED(msg);
+    UNUSED(arg_int);
+    UNUSED(arg_ptr);
     /*switch(msg) {
     case U8X8_MSG_BYTE_SEND:
         furi_hal_spi_bus_tx(&furi_hal_spi_bus_handle_display, (uint8_t*)arg_ptr, arg_int, 10000);

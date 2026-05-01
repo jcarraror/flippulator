@@ -4,7 +4,8 @@
   "description": "A Flipper Zero emulator",
   "main": "index.js",
   "scripts": {
-    "start": "node index.js"
+    "start": "node index.js",
+    "demo": "node index.js examples/basic_demo"
   },
   "bin": {
     "flippulator": "index.js"

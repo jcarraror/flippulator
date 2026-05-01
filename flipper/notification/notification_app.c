@@ -8,6 +8,7 @@
 #include <stdio.h>
 
 void notification_message_save_settings(NotificationApp* app) {
+    UNUSED(app);
     // TODO
 }
 
