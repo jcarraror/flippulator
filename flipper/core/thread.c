@@ -1,6 +1,7 @@
 #include "thread.h"
 #include "string.h"
 #include <limits.h>
+#include <stdio.h>
 
 #ifndef FLIPPULATOR_APP_ID
 #define FLIPPULATOR_APP_ID "flippulator"
@@ -50,6 +51,78 @@ struct FuriThread {
 static FuriThread* threads[THREADS_MAX];
 static unsigned int threads_i = 0;
 
+static FuriThread* furi_thread_find_by_id(FuriThreadId thread_id) {
+    for(unsigned int i = 0; i < threads_i; i++) {
+        if(threads[i] != NULL && (FuriThreadId)threads[i]->task_handle == thread_id) {
+            return threads[i];
+        }
+    }
+
+    return NULL;
+}
+
+static void furi_thread_stdout_buffer_append(FuriThread* thread, const char* data, size_t size) {
+    furi_assert(thread);
+    furi_assert(data != NULL || size == 0U);
+
+    if(size == 0U) {
+        return;
+    }
+
+    FuriString* buffer = thread->output.buffer;
+    const size_t buffer_size = furi_string_size(buffer);
+    furi_string_reserve(buffer, buffer_size + size + 1U);
+
+    for(size_t i = 0; i < size; i++) {
+        furi_string_push_back(buffer, data[i]);
+    }
+}
+
+static int32_t furi_thread_stdout_write_direct(FuriThread* thread, const char* data, size_t size) {
+    furi_assert(thread);
+    furi_assert(data != NULL || size == 0U);
+
+    if(size == 0U) {
+        return 0;
+    }
+
+    if(thread->output.write_callback != NULL) {
+        thread->output.write_callback(data, size);
+    } else {
+        const size_t written = fwrite(data, 1U, size, stdout);
+        fflush(stdout);
+        if(written != size) {
+            return -1;
+        }
+    }
+
+    return 0;
+}
+
+static int32_t furi_thread_stdout_flush_internal(FuriThread* thread) {
+    furi_assert(thread);
+
+    FuriString* buffer = thread->output.buffer;
+    const size_t size = furi_string_size(buffer);
+    if(size == 0U) {
+        return 0;
+    }
+
+    const int32_t result = furi_thread_stdout_write_direct(thread, furi_string_get_cstr(buffer), size);
+    if(result == 0) {
+        furi_string_reset(buffer);
+    }
+
+    return result;
+}
+
+static void furi_thread_set_suspended(FuriThreadId thread_id, bool suspended) {
+    FuriThread* thread = furi_thread_find_by_id(thread_id);
+    if(thread != NULL) {
+        thread->suspended = suspended;
+    }
+}
+
 static void furi_thread_set_state(FuriThread* thread, FuriThreadState state) {
     furi_assert(thread);
     thread->state = state;
@@ -60,6 +133,7 @@ static void furi_thread_set_state(FuriThread* thread, FuriThreadState state) {
 
 FuriThread* furi_thread_alloc() {
     FuriThread* thread = calloc(1, sizeof(FuriThread));
+    furi_check(threads_i < THREADS_MAX);
 
     thread->task_handle = (TaskHandle_t)SIZE_MAX;
 
@@ -101,13 +175,16 @@ void furi_thread_free(FuriThread* thread) {
     if(thread->appid) free(thread->appid);
     furi_string_free(thread->output.buffer);
 
-    for(unsigned int i = 0; i < THREADS_MAX; i++)
+    for(unsigned int i = 0; i < threads_i; i++) {
         if(threads[i] == thread) {
-            threads[i] = NULL;
-            memcpy(&threads[i], &threads[i + 1], threads_i - i - 1);
+            if(i + 1 < threads_i) {
+                memmove(&threads[i], &threads[i + 1], (threads_i - i - 1) * sizeof(threads[0]));
+            }
+            threads[threads_i - 1] = NULL;
             threads_i--;
             break;
         }
+    }
 
     free(thread);
 }
@@ -251,11 +328,7 @@ FuriThreadId furi_thread_get_current_id() {
 }
 
 FuriThread* furi_thread_get_current() {
-    FuriThreadId id = furi_thread_get_current_id();
-    for(unsigned int i = 0; i < THREADS_MAX; i++)
-        if(threads[i] != NULL && (FuriThreadId)threads[i]->task_handle == id)
-            return threads[i];
-    return NULL;
+    return furi_thread_find_by_id(furi_thread_get_current_id());
 }
 
 void furi_thread_yield() {
@@ -292,44 +365,34 @@ uint32_t furi_thread_flags_wait(uint32_t flags, uint32_t options, uint32_t timeo
 }
 
 uint32_t furi_thread_enumerate(FuriThreadId* thread_array, uint32_t array_items) {
-    uint32_t count = 0, i = 0;
-    // TODO: omptimize
-    while(count < array_items && i < THREADS_MAX) {
-        if(threads[i] != NULL) {
-            thread_array[count] = threads[i];
-            count++;
-        }
-        i++;
+    uint32_t count = 0;
+
+    for(unsigned int i = 0; i < threads_i && count < array_items; i++) {
+        thread_array[count++] = threads[i];
     }
+
     return count;
 }
 
 const char* furi_thread_get_name(FuriThreadId thread_id) {
-    for(unsigned int i = 0; i < THREADS_MAX; i++)
-        if(threads[i] != NULL && (FuriThreadId)threads[i]->task_handle == thread_id)
-            return threads[i]->name;
-    return NULL;
+    FuriThread* thread = furi_thread_find_by_id(thread_id);
+    return thread != NULL ? thread->name : NULL;
 }
 
 const char* furi_thread_get_appid(FuriThreadId thread_id) {
-    for(unsigned int i = 0; i < THREADS_MAX; i++)
-        if(threads[i] != NULL && (FuriThreadId)threads[i]->task_handle == thread_id)
-            return threads[i]->appid;
-    return NULL;
+    FuriThread* thread = furi_thread_find_by_id(thread_id);
+    return thread != NULL ? thread->appid : NULL;
 }
 
 uint32_t furi_thread_get_stack_space(FuriThreadId thread_id) {
-    for(unsigned int i = 0; i < THREADS_MAX; i++)
-        if(threads[i] != NULL && (FuriThreadId)threads[i]->task_handle == thread_id)
-            return threads[i]->stack_size;
-    return 0;
+    FuriThread* thread = furi_thread_find_by_id(thread_id);
+    return thread != NULL ? thread->stack_size : 0;
 }
 
-// TODO: implement
-/*void furi_thread_set_stdout_callback(FuriThreadStdoutWriteCallback callback) {
+void furi_thread_set_stdout_callback(FuriThreadStdoutWriteCallback callback) {
     FuriThread* thread = furi_thread_get_current();
     furi_assert(thread);
-    __furi_thread_stdout_flush(thread);
+    furi_thread_stdout_flush_internal(thread);
     thread->output.write_callback = callback;
 }
 
@@ -342,22 +405,28 @@ FuriThreadStdoutWriteCallback furi_thread_get_stdout_callback() {
 size_t furi_thread_stdout_write(const char* data, size_t size) {
     FuriThread* thread = furi_thread_get_current();
     furi_assert(thread);
-    if(size == 0 || data == NULL) {
-        return __furi_thread_stdout_flush(thread);
-    } else {
-        if(data[size - 1] == '\n') {
-            // if the last character is a newline, we can flush buffer and write data as is, wo buffers
-            __furi_thread_stdout_flush(thread);
-            __furi_thread_stdout_write(thread, data, size);
-        } else {
-            // string_cat doesn't work here because we need to write the exact size data
-            for(size_t i = 0; i < size; i++) {
-                furi_string_push_back(thread->output.buffer, data[i]);
-                if(data[i] == '\n') {
-                    __furi_thread_stdout_flush(thread);
-                }
-            }
+
+    if(data == NULL || size == 0U) {
+        return furi_thread_stdout_flush_internal(thread) == 0 ? 0U : 0U;
+    }
+
+    size_t offset = 0U;
+    while(offset < size) {
+        const void* newline_ptr = memchr(data + offset, '\n', size - offset);
+        if(newline_ptr == NULL) {
+            furi_thread_stdout_buffer_append(thread, data + offset, size - offset);
+            break;
         }
+
+        const size_t chunk_size = (const char*)newline_ptr - (data + offset) + 1U;
+        if(furi_string_size(thread->output.buffer) == 0U) {
+            furi_thread_stdout_write_direct(thread, data + offset, chunk_size);
+        } else {
+            furi_thread_stdout_buffer_append(thread, data + offset, chunk_size);
+            furi_thread_stdout_flush_internal(thread);
+        }
+
+        offset += chunk_size;
     }
 
     return size;
@@ -366,30 +435,20 @@ size_t furi_thread_stdout_write(const char* data, size_t size) {
 int32_t furi_thread_stdout_flush() {
     FuriThread* thread = furi_thread_get_current();
     furi_assert(thread);
-    return __furi_thread_stdout_flush(thread);
-}*/
+    return furi_thread_stdout_flush_internal(thread);
+}
 
 void furi_thread_suspend(FuriThreadId thread_id) {
-    for(unsigned int i = 0; i < THREADS_MAX; i++)
-        if(threads[i] != NULL && (FuriThreadId)threads[i]->task_handle == thread_id) {
-            // pthread_suspend_np(threads[i]->task_handle);
-            // TODO: furi log
-            threads[i]->suspended = true;
-        }
+    /* Track suspend state for simulator compatibility.
+       Forcibly suspending pthreads is non-portable and unsafe. */
+    furi_thread_set_suspended(thread_id, true);
 }
 
 void furi_thread_resume(FuriThreadId thread_id) {
-    for(unsigned int i = 0; i < THREADS_MAX; i++)
-        if(threads[i] != NULL && (FuriThreadId)threads[i]->task_handle == thread_id) {
-            // pthread_unsuspend_np(threads[i]->task_handle);
-            // TODO: furi log
-            threads[i]->suspended = false;
-        }
+    furi_thread_set_suspended(thread_id, false);
 }
 
 bool furi_thread_is_suspended(FuriThreadId thread_id) {
-    for(unsigned int i = 0; i < THREADS_MAX; i++)
-        if(threads[i] != NULL && (FuriThreadId)threads[i]->task_handle == thread_id)
-            return threads[i]->suspended;
-    return false;
+    FuriThread* thread = furi_thread_find_by_id(thread_id);
+    return thread != NULL ? thread->suspended : false;
 }

@@ -82,6 +82,8 @@ void canvas_free(Canvas* canvas);
 void canvas_commit(Canvas* canvas);
 uint8_t* canvas_get_buffer(Canvas* canvas);
 size_t canvas_get_buffer_size(const Canvas* canvas);
+void canvas_set_orientation(Canvas* canvas, CanvasOrientation orientation);
+CanvasOrientation canvas_get_orientation(const Canvas* canvas);
 void canvas_frame_set(
     Canvas* canvas,
     uint8_t offset_x,
@@ -128,7 +130,27 @@ void canvas_draw_icon_ex(
     uint8_t y,
     const Icon* icon,
     IconRotation rotation);
+void canvas_draw_icon_animation(
+    Canvas* canvas,
+    uint8_t x,
+    uint8_t y,
+    IconAnimation* icon_animation);
 void canvas_draw_icon(Canvas* canvas, uint8_t x, uint8_t y, const Icon* icon);
+void canvas_draw_xbm(
+    Canvas* canvas,
+    uint8_t x,
+    uint8_t y,
+    uint8_t width,
+    uint8_t height,
+    const uint8_t* bitmap);
+void canvas_draw_xbm_ex(
+    Canvas* canvas,
+    uint8_t x,
+    uint8_t y,
+    uint8_t width,
+    uint8_t height,
+    IconRotation rotation,
+    const uint8_t* bitmap);
 
 /** Draw dot at x,y
  *

@@ -5,6 +5,7 @@
 
 #include <furi.h>
 #include <u8g2_glue.h>
+#include <string.h>
 
 const CanvasFontParameters canvas_font_params[FontTotalNumber] = {
     [FontPrimary] = {.leading_default = 12, .leading_min = 11, .height = 8, .descender = 2},
@@ -14,8 +15,9 @@ const CanvasFontParameters canvas_font_params[FontTotalNumber] = {
 };
 
 Canvas* canvas_init() {
-    Canvas* canvas = malloc(sizeof(Canvas));
+    Canvas* canvas = calloc(1, sizeof(Canvas));
     u8g2_Setup_st756x_flipper(&canvas->fb, U8G2_R0, u8x8_hw_spi_stm32, u8g2_gpio_and_delay_stm32);
+    canvas->committed_buffer = calloc(1, canvas_get_buffer_size(canvas));
     canvas->orientation = CanvasOrientationHorizontal;
     canvas->offset_x = 0;
     canvas->offset_y = 0;
@@ -26,17 +28,23 @@ Canvas* canvas_init() {
 
 void canvas_free(Canvas* canvas) {
     furi_assert(canvas);
+    free(canvas->committed_buffer);
     free(canvas);
 }
 
 void canvas_commit(Canvas* canvas) {
-    UNUSED(canvas);
-    // TODO: two framebuffers, one is final, the other one is temp
+    furi_assert(canvas);
+    memcpy(canvas->committed_buffer, u8g2_GetBufferPtr(&canvas->fb), canvas_get_buffer_size(canvas));
 }
 
 uint8_t* canvas_get_buffer(Canvas* canvas) {
     furi_assert(canvas);
     return u8g2_GetBufferPtr(&canvas->fb);
+}
+
+const uint8_t* canvas_get_committed_buffer(const Canvas* canvas) {
+    furi_assert(canvas);
+    return canvas->committed_buffer;
 }
 
 size_t canvas_get_buffer_size(const Canvas* canvas) {
@@ -478,6 +486,20 @@ void canvas_draw_xbm(
     canvas_draw_u8g2_bitmap(&canvas->fb, x, y, w, h, bitmap, IconRotation0);
 }
 
+void canvas_draw_xbm_ex(
+    Canvas* canvas,
+    uint8_t x,
+    uint8_t y,
+    uint8_t w,
+    uint8_t h,
+    IconRotation rotation,
+    const uint8_t* bitmap) {
+    furi_assert(canvas);
+    x += canvas->offset_x;
+    y += canvas->offset_y;
+    canvas_draw_u8g2_bitmap(&canvas->fb, x, y, w, h, bitmap, rotation);
+}
+
 void canvas_draw_glyph(Canvas* canvas, uint8_t x, uint8_t y, uint16_t ch) {
     furi_assert(canvas);
     x += canvas->offset_x;
@@ -528,5 +550,3 @@ void canvas_set_orientation(Canvas* canvas, CanvasOrientation orientation) {
 CanvasOrientation canvas_get_orientation(const Canvas* canvas) {
     return canvas->orientation;
 }
-
-// TODO: other drawing functions

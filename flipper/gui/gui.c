@@ -25,6 +25,10 @@
 
 #define FLIPPULATOR_FONT_SIZE 16
 
+#ifndef FLIPPULATOR_APP_NAME
+#define FLIPPULATOR_APP_NAME "flippulator"
+#endif
+
 extern bool global_vibro_on;
 extern float global_sound_freq;
 extern float global_sound_volume;
@@ -44,6 +48,8 @@ static const SDL_Color Black = {0x00, 0x00, 0x00, 0xff};
 static SDL_AudioDeviceID audio_device;
 static SDL_AudioSpec audio_spec;
 static bool running = true;
+static bool show_debug_grid = false;
+static bool show_host_hud = true;
 static float s_time = 0;
 
 #include <stdio.h>
@@ -142,6 +148,16 @@ static void* handle_input(void* _view_port) {
         while(SDL_PollEvent(&event)) {
             if(event.type == SDL_QUIT) exit_sdl(0);
             if(event.type == SDL_KEYDOWN || event.type == SDL_KEYUP) {
+                if(event.type == SDL_KEYDOWN && event.key.keysym.sym == SDLK_g) {
+                    show_debug_grid = !show_debug_grid;
+                    continue;
+                }
+
+                if(event.type == SDL_KEYDOWN && event.key.keysym.sym == SDLK_h) {
+                    show_host_hud = !show_host_hud;
+                    continue;
+                }
+
                 InputEvent* e = malloc(sizeof(InputEvent));
                 e->type = event.type == SDL_KEYDOWN ? InputTypePress : InputTypeRelease;
                 bool flag = true;
@@ -202,40 +218,65 @@ static void renderMessage(const char* msg, int x, int y) {
 #endif
 }
 
+static void render_debug_grid(void) {
+    if(!show_debug_grid) {
+        return;
+    }
+
+    SDL_SetRenderDrawColor(renderer, 0xd8, 0x94, 0x38, 0xff);
+    for(int x = 0; x <= 128; x += 8) {
+        SDL_RenderDrawLine(renderer, x * 5, 0, x * 5, 64 * 5);
+    }
+    for(int y = 0; y <= 64; y += 8) {
+        SDL_RenderDrawLine(renderer, 0, y * 5, 128 * 5, y * 5);
+    }
+
+    SDL_SetRenderDrawColor(renderer, 0xb8, 0x70, 0x20, 0xff);
+    SDL_RenderDrawLine(renderer, 64 * 5, 0, 64 * 5, 64 * 5);
+    SDL_RenderDrawLine(renderer, 0, 32 * 5, 128 * 5, 32 * 5);
+}
+
 // TODO: multiple viewports support
 static void* handle_gui(void* _view_port) {
     ViewPort* view_port = _view_port;
     while(running) {
-        if(view_port->draw_callback != NULL)
+        if(view_port->draw_callback != NULL) {
             view_port->draw_callback(view_port->gui->canvas, view_port->draw_callback_context);
+            canvas_commit(view_port->gui->canvas);
+        }
+
+        const uint8_t* committed_buffer = canvas_get_committed_buffer(view_port->gui->canvas);
         
         SDL_SetRenderDrawColor(renderer, 0xff, 0x82, 0x00, 0xff);
         SDL_RenderClear(renderer);
+        render_debug_grid();
         SDL_SetRenderDrawColor(renderer, 0x00, 0x00, 0x00, 0xff);
-        
-        rect.x = 0;
-        rect.y = 320;
-        rect.w = 640;
-        rect.h = 3;
-        SDL_RenderDrawRect(renderer, &rect);
-        SDL_RenderFillRect(renderer, &rect);
 
-        char msg_vibro[16];
-        char msg_led[16];
-        char msg_bl[18];
+        if(show_host_hud) {
+            rect.x = 0;
+            rect.y = 320;
+            rect.w = 640;
+            rect.h = 3;
+            SDL_RenderDrawRect(renderer, &rect);
+            SDL_RenderFillRect(renderer, &rect);
 
-        snprintf(msg_vibro, sizeof(msg_vibro), "Vibro: %s", global_vibro_on ? "On" : "Off");
-        renderMessage(msg_vibro, 20, 340);
-        snprintf(
-            msg_led,
-            sizeof(msg_led),
-            "LED: #%02x%02x%02x",
-            global_led[0],
-            global_led[1],
-            global_led[2]);
-        renderMessage(msg_led, 20, 380);
-        snprintf(msg_bl, sizeof(msg_bl), "Backlight: 0x%02x", global_backlight_brightness);
-        renderMessage(msg_bl, 20, 420);
+            char msg_vibro[16];
+            char msg_led[16];
+            char msg_bl[18];
+
+            snprintf(msg_vibro, sizeof(msg_vibro), "Vibro: %s", global_vibro_on ? "On" : "Off");
+            renderMessage(msg_vibro, 20, 340);
+            snprintf(
+                msg_led,
+                sizeof(msg_led),
+                "LED: #%02x%02x%02x",
+                global_led[0],
+                global_led[1],
+                global_led[2]);
+            renderMessage(msg_led, 20, 380);
+            snprintf(msg_bl, sizeof(msg_bl), "Backlight: 0x%02x", global_backlight_brightness);
+            renderMessage(msg_bl, 20, 420);
+        }
 
         for(uint8_t x = 0; x < view_port->width / 8; x++) // Tile X
             for(uint8_t y = 0; y < view_port->height / 8; y++) // Tile Y
@@ -243,7 +284,7 @@ static void* handle_gui(void* _view_port) {
                 //    continue;
                 for(uint8_t i = 0; i < 8; i++) // Tile row
                     for(uint8_t j = 0; j < 8; j++) { // Tile column
-                        if(!(canvas_get_buffer(view_port->gui->canvas)[x * 8 + y * view_port->width + i] & (1 << j))) continue;
+                        if(!(committed_buffer[x * 8 + y * view_port->width + i] & (1 << j))) continue;
                         rect.x = (8 * x + i) * 5;
                         rect.y = (8 * y + j) * 5;
                         rect.w = 5;

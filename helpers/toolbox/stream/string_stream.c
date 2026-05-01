@@ -9,8 +9,6 @@ typedef struct {
     size_t index;
 } StringStream;
 
-static size_t string_stream_write_char(StringStream* stream, char c);
-
 static void string_stream_free(StringStream* stream);
 static bool string_stream_eof(StringStream* stream);
 static void string_stream_clean(StringStream* stream);
@@ -106,13 +104,31 @@ static size_t string_stream_size(StringStream* stream) {
 }
 
 static size_t string_stream_write(StringStream* stream, const char* data, size_t size) {
-    // TODO FL-3544: can be optimized for edge cases
-    size_t i;
-    for(i = 0; i < size; i++) {
-        string_stream_write_char(stream, data[i]);
+    if(size == 0U) {
+        return 0U;
     }
 
-    return i;
+    const size_t current_size = string_stream_size(stream);
+    const size_t write_offset = stream->index;
+
+    size_t overwrite_size = 0U;
+    if(write_offset < current_size) {
+        overwrite_size = MIN(size, current_size - write_offset);
+        for(size_t i = 0; i < overwrite_size; i++) {
+            furi_string_set_char(stream->string, write_offset + i, data[i]);
+        }
+    }
+
+    const size_t append_size = size - overwrite_size;
+    if(append_size > 0U) {
+        furi_string_reserve(stream->string, current_size + append_size + 1U);
+        for(size_t i = 0; i < append_size; i++) {
+            furi_string_push_back(stream->string, data[overwrite_size + i]);
+        }
+    }
+
+    stream->index += size;
+    return size;
 }
 
 static size_t string_stream_read(StringStream* stream, char* data, size_t size) {
@@ -159,21 +175,4 @@ static bool string_stream_delete_and_insert(
     }
 
     return result;
-}
-
-/**
- * Write to string stream helper
- * @param stream 
- * @param c 
- * @return size_t 
- */
-static size_t string_stream_write_char(StringStream* stream, char c) {
-    if(string_stream_eof(stream)) {
-        furi_string_push_back(stream->string, c);
-    } else {
-        furi_string_set_char(stream->string, stream->index, c);
-    }
-    stream->index++;
-
-    return 1;
 }

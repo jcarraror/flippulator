@@ -10,6 +10,7 @@
  */
 struct Canvas {
     u8g2_t fb;
+    uint8_t* committed_buffer;
     CanvasOrientation orientation;
     uint8_t offset_x;
     uint8_t offset_y;
@@ -37,6 +38,7 @@ void canvas_free(Canvas* canvas);
  * @return     pointer to buffer
  */
 uint8_t* canvas_get_buffer(Canvas* canvas);
+const uint8_t* canvas_get_committed_buffer(const Canvas* canvas);
 
 /** Get canvas buffer size.
  *
