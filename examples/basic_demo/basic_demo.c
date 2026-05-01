@@ -32,7 +32,10 @@ typedef enum {
 } BasicDemoSignalIndex;
 
 typedef struct {
-    uint8_t dot_x;
+    uint8_t phase;
+    uint8_t speed;
+    uint8_t amplitude;
+    uint8_t wave_mode;
     bool paused;
 } BasicDemoCanvasModel;
 
@@ -54,10 +57,10 @@ typedef struct {
 } BasicDemoApp;
 
 static const BasicDemoWidgetPreset basic_demo_widget_presets[] = {
-    {.title = "Success", .sequence = &sequence_success, .hint = "sound + green"},
-    {.title = "Error", .sequence = &sequence_error, .hint = "sound + red"},
-    {.title = "Vibro", .sequence = &sequence_single_vibro, .hint = "haptic pulse"},
-    {.title = "Alert", .sequence = &sequence_audiovisual_alert, .hint = "audio + blink"},
+    {.title = "Success", .sequence = &sequence_success, .hint = "green chime"},
+    {.title = "Error", .sequence = &sequence_error, .hint = "red buzz"},
+    {.title = "Vibro", .sequence = &sequence_single_vibro, .hint = "vibro pulse"},
+    {.title = "Alert", .sequence = &sequence_audiovisual_alert, .hint = "blink alert"},
 };
 
 #define BASIC_DEMO_WIDGET_PRESET_COUNT \
@@ -68,8 +71,42 @@ static void basic_demo_widget_button_callback(
     InputType type,
     void* context);
 
+static const char* basic_demo_wave_name(uint8_t wave_mode) {
+    if(wave_mode == 0U) {
+        return "TRI";
+    } else if(wave_mode == 1U) {
+        return "SQR";
+    }
+    return "SAW";
+}
+
+static int8_t basic_demo_wave_sample(const BasicDemoCanvasModel* model, uint8_t x) {
+    const uint8_t period = 64U;
+    const uint8_t t = (uint8_t)((x + model->phase) % period);
+    const int8_t amp = (int8_t)model->amplitude;
+
+    if(model->wave_mode == 0U) {
+        /* Triangle wave in range [-amp, amp]. */
+        if(t < (period / 2U)) {
+            return (int8_t)(-amp + ((int16_t)t * (2 * amp)) / (period / 2U));
+        }
+        return (int8_t)(amp - ((int16_t)(t - (period / 2U)) * (2 * amp)) / (period / 2U));
+    } else if(model->wave_mode == 1U) {
+        return (t < (period / 2U)) ? amp : (int8_t)-amp;
+    }
+
+    /* Saw wave in range [-amp, amp]. */
+    return (int8_t)(-amp + ((int16_t)t * (2 * amp)) / (period - 1U));
+}
+
 static void basic_demo_notify(BasicDemoApp* app, const NotificationSequence* sequence) {
     notification_message(app->notification, &sequence_display_backlight_on);
+    notification_message(app->notification, sequence);
+}
+
+static void basic_demo_notify_replace_led(BasicDemoApp* app, const NotificationSequence* sequence) {
+    notification_message(app->notification, &sequence_display_backlight_on);
+    notification_message(app->notification, &sequence_reset_rgb);
     notification_message(app->notification, sequence);
 }
 
@@ -87,7 +124,7 @@ static void basic_demo_widget_refresh(BasicDemoApp* app) {
         (unsigned)(app->widget_selected + 1U),
         (unsigned)BASIC_DEMO_WIDGET_PRESET_COUNT,
         preset->title);
-    snprintf(hint_line, sizeof(hint_line), "Effect: %s", preset->hint);
+    snprintf(hint_line, sizeof(hint_line), "fx: %s", preset->hint);
     snprintf(count_line, sizeof(count_line), "Triggered: %u", (unsigned)app->widget_fired_count);
 
     widget_reset(app->widget);
@@ -96,7 +133,7 @@ static void basic_demo_widget_refresh(BasicDemoApp* app) {
     widget_add_string_element(app->widget, 64, 10, AlignCenter, AlignBottom, FontPrimary, "Widget View");
     widget_add_rect_element(app->widget, 6, 14, 116, 36, 2, false);
     widget_add_string_element(
-        app->widget, 64, 24, AlignCenter, AlignBottom, FontPrimary, selected_line);
+        app->widget, 64, 24, AlignCenter, AlignBottom, FontSecondary, selected_line);
     widget_add_string_element(
         app->widget, 64, 35, AlignCenter, AlignBottom, FontSecondary, hint_line);
     widget_add_string_element(
@@ -157,7 +194,7 @@ static void basic_demo_widget_button_callback(
         basic_demo_widget_refresh(app);
     } else if(result == GuiButtonTypeCenter) {
         const BasicDemoWidgetPreset* preset = &basic_demo_widget_presets[app->widget_selected];
-        basic_demo_notify(app, preset->sequence);
+        basic_demo_notify_replace_led(app, preset->sequence);
         app->widget_fired_count++;
         basic_demo_widget_refresh(app);
     } else if(result == GuiButtonTypeRight) {
@@ -170,42 +207,64 @@ static void basic_demo_widget_button_callback(
 
 static void basic_demo_canvas_draw(Canvas* canvas, void* model) {
     BasicDemoCanvasModel* canvas_model = model;
+    char info_line[22];
+    const uint8_t graph_x = 8U;
+    const uint8_t graph_y = 24U;
+    const uint8_t graph_w = 112U;
+    const uint8_t graph_h = 16U;
+    const uint8_t mid_y = (uint8_t)(graph_y + (graph_h / 2U));
 
     canvas_clear(canvas);
     canvas_draw_frame(canvas, 0, 0, 128, 64);
     canvas_draw_box(canvas, 0, 0, 128, 13);
     canvas_set_color(canvas, ColorWhite);
     canvas_set_font(canvas, FontPrimary);
-    canvas_draw_str_aligned(canvas, 64, 10, AlignCenter, AlignBottom, "Canvas View");
+    canvas_draw_str_aligned(canvas, 64, 10, AlignCenter, AlignBottom, "Canvas Lab");
     canvas_set_color(canvas, ColorBlack);
-    canvas_draw_line(canvas, 0, 54, 127, 54);
-    elements_button_center(canvas, "Pause");
-    elements_button_right(canvas, "Back");
-    canvas_draw_frame(canvas, 6, 18, 116, 32);
 
-    canvas_draw_frame(canvas, 14, 24, 16, 10);
-    canvas_draw_box(canvas, 36, 24, 16, 10);
-    canvas_draw_rframe(canvas, 58, 24, 16, 10, 2);
-    canvas_draw_rbox(canvas, 80, 24, 16, 10, 2);
-    canvas_draw_circle(canvas, 108, 29, 5);
-
-    canvas_draw_line(canvas, 14, 42, 48, 42);
-    canvas_draw_triangle(canvas, 68, 42, 12, 10, CanvasDirectionBottomToTop);
-    canvas_draw_disc(canvas, canvas_model->dot_x, 42, 1);
-
+    snprintf(
+        info_line,
+        sizeof(info_line),
+        "%s s%u %s",
+        basic_demo_wave_name(canvas_model->wave_mode),
+        (unsigned)canvas_model->speed,
+        canvas_model->paused ? "P" : "L");
     canvas_set_font(canvas, FontSecondary);
-    canvas_draw_str_aligned(
-        canvas,
-        104,
-        44,
-        AlignCenter,
-        AlignBottom,
-        canvas_model->paused ? "paused" : "live");
+    canvas_draw_str_aligned(canvas, 64, 21, AlignCenter, AlignBottom, info_line);
+
+    canvas_draw_frame(canvas, graph_x, graph_y, graph_w, graph_h);
+    canvas_draw_line(canvas, graph_x + 1U, mid_y, graph_x + graph_w - 2U, mid_y);
+
+    /* Draw waveform as connected line segments across the graph area. */
+    int8_t prev = basic_demo_wave_sample(canvas_model, 0U);
+    for(uint8_t px = 1U; px < (uint8_t)(graph_w - 2U); px++) {
+        int8_t curr = basic_demo_wave_sample(canvas_model, px);
+        canvas_draw_line(
+            canvas,
+            (uint8_t)(graph_x + px),
+            (uint8_t)((int16_t)mid_y - prev),
+            (uint8_t)(graph_x + px + 1U),
+            (uint8_t)((int16_t)mid_y - curr));
+        prev = curr;
+    }
+
+    canvas_draw_disc(canvas, (uint8_t)(graph_x + graph_w - 3U), (uint8_t)((int16_t)mid_y - prev), 1U);
+
+    canvas_draw_str_aligned(canvas, 64, 48, AlignCenter, AlignBottom, "U/D speed");
+
+    canvas_draw_line(canvas, 0, 54, 127, 54);
+    elements_button_left(canvas, "Wave-");
+    elements_button_center(canvas, canvas_model->paused ? "Run" : "Pause");
+    elements_button_right(canvas, "Wave+");
 }
 
 static bool basic_demo_canvas_input(InputEvent* event, void* context) {
     BasicDemoApp* app = context;
-    if(event->type == InputTypePress && event->key == InputKeyOk) {
+    if(event->type != InputTypePress && event->type != InputTypeRepeat) {
+        return false;
+    }
+
+    if(event->key == InputKeyOk && event->type == InputTypePress) {
         with_view_model(
             app->canvas_view,
             BasicDemoCanvasModel * model,
@@ -213,7 +272,60 @@ static bool basic_demo_canvas_input(InputEvent* event, void* context) {
             true);
         basic_demo_notify(app, &sequence_single_vibro);
         return true;
+    } else if(event->key == InputKeyLeft && event->type == InputTypePress) {
+        with_view_model(
+            app->canvas_view,
+            BasicDemoCanvasModel * model,
+            {
+                if(model->wave_mode == 0U) {
+                    model->wave_mode = 2U;
+                } else {
+                    model->wave_mode--;
+                }
+            },
+            true);
+        basic_demo_notify(app, &sequence_single_vibro);
+        return true;
+    } else if(event->key == InputKeyRight && event->type == InputTypePress) {
+        with_view_model(
+            app->canvas_view,
+            BasicDemoCanvasModel * model,
+            { model->wave_mode = (uint8_t)((model->wave_mode + 1U) % 3U); },
+            true);
+        basic_demo_notify(app, &sequence_single_vibro);
+        return true;
+    } else if(event->key == InputKeyUp) {
+        with_view_model(
+            app->canvas_view,
+            BasicDemoCanvasModel * model,
+            {
+                if(model->speed < 8U) {
+                    model->speed++;
+                }
+                model->amplitude = (uint8_t)(1U + model->speed);
+            },
+            true);
+        if(event->type == InputTypePress) {
+            basic_demo_notify(app, &sequence_single_vibro);
+        }
+        return true;
+    } else if(event->key == InputKeyDown) {
+        with_view_model(
+            app->canvas_view,
+            BasicDemoCanvasModel * model,
+            {
+                if(model->speed > 1U) {
+                    model->speed--;
+                }
+                model->amplitude = (uint8_t)(1U + model->speed);
+            },
+            true);
+        if(event->type == InputTypePress) {
+            basic_demo_notify(app, &sequence_single_vibro);
+        }
+        return true;
     }
+
     return false;
 }
 
@@ -228,10 +340,7 @@ static void basic_demo_tick(void* context) {
         BasicDemoCanvasModel * model,
         {
             if(!model->paused) {
-                model->dot_x++;
-                if(model->dot_x > 46U) {
-                    model->dot_x = 18U;
-                }
+                model->phase = (uint8_t)((model->phase + model->speed) % 64U);
             }
         },
         true);
@@ -284,7 +393,10 @@ static void basic_demo_setup_canvas(BasicDemoApp* app) {
         app->canvas_view,
         BasicDemoCanvasModel * model,
         {
-            model->dot_x = 18U;
+            model->phase = 0U;
+            model->speed = 2U;
+            model->amplitude = 3U;
+            model->wave_mode = 0U;
             model->paused = false;
         },
         false);

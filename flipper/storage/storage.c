@@ -34,7 +34,7 @@
 } */
 
 Storage* storage_app_alloc() {
-    Storage* app = malloc(sizeof(Storage));
+    Storage* app = calloc(1, sizeof(Storage));
     app->message_queue = furi_message_queue_alloc(8, sizeof(StorageMessage));
     app->pubsub = furi_pubsub_alloc();
 

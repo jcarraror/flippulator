@@ -11,6 +11,7 @@ OBJECTS = ${subst .c,.o,$(SOURCES)} ${subst .c,.o,$(SRC_APP)}
 OUT_DIR = $(shell cat /tmp/flippulator_temp_out_app_dir)
 OUT_APP_NAME = $(shell cat /tmp/flippulator_temp_out_app_name)
 CC_EXTRA = $(shell cat /tmp/flippulator_temp_cc_extra)
+CC_USER_EXTRA ?=
 OUT_APP = $(OUT_DIR)$(OUT_APP_NAME)
 SRC_FONT = haxrcorp-4089.ttf
 OUT_FONT = $(OUT_DIR)haxrcorp-4089.ttf
@@ -50,13 +51,13 @@ $(OUT_APP):
 		if [ -n "$$jsout" ]; then \
 			objname=$$(echo $$jsout | jq -r '.obj'); \
 			dateextr=$$(echo $$jsout | jq -r '.time'); \
-			$(CC_PREFIX_FINAL) -c $(CC_EXTRA) -I$(LIBS) -I$(LIBS_HAL) -I$(HELPERS) -I$(EXT_LIB_ALL) "$$file" -o $$objname $(CC_POSTFIX_FINAL) && \
+			$(CC_PREFIX_FINAL) -c $(CC_EXTRA) $(CC_USER_EXTRA) -I$(LIBS) -I$(LIBS_HAL) -I$(HELPERS) -I$(EXT_LIB_ALL) "$$file" -o $$objname $(CC_POSTFIX_FINAL) && \
 			echo CC: $$file = $$objname && \
 			jq '.["'$$file'"] = "'$$dateextr'"' $(TIMESTAMPS) > $(TIMESTAMPS_TMP) && \
 			mv $(TIMESTAMPS_TMP) $(TIMESTAMPS); \
 		fi; \
 	done
-	$(CC_PREFIX_FINAL) $(OBJECTS) -o $(OUT_APP) $(CC_POSTFIX_FINAL)
+	$(CC_PREFIX_FINAL) $(CC_EXTRA) $(CC_USER_EXTRA) $(OBJECTS) -o $(OUT_APP) $(CC_POSTFIX_FINAL)
 
 #$(BUILD_LIB_heatshrink):
 #	make -C lib/heatshrink libraries

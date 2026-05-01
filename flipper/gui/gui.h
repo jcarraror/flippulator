@@ -31,4 +31,5 @@ void exit_sdl(uint8_t code);
 void gui_add_view_port(Gui* gui, ViewPort* view_port, GuiLayer layer);
 void gui_remove_view_port(Gui* gui, ViewPort* view_port);
 Gui* gui_alloc();
+void gui_free(Gui* gui);
 int32_t gui_srv(void* p);

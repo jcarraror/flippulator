@@ -1,5 +1,6 @@
 #include "gui_i.h"
 
+#include <furi.h>
 #include <pthread.h>
 #ifdef _WIN32
     #include <windows.h>
@@ -29,6 +30,19 @@
 #define FLIPPULATOR_APP_NAME "flippulator"
 #endif
 
+#define SCR_SCALE   5               /* host pixels per Flipper pixel          */
+#define SCR_W       (128 * SCR_SCALE)  /* 640 */
+#define SCR_H       (64  * SCR_SCALE)  /* 320 */
+#define BZL_L       20              /* bezel left                             */
+#define BZL_R       20              /* bezel right                            */
+#define BZL_T       28              /* bezel top                              */
+#define BZL_B       20              /* bezel bottom                           */
+#define DEV_W       (SCR_W + BZL_L + BZL_R)   /* 680  */
+#define DEV_H       (SCR_H + BZL_T + BZL_B)   /* 368  */
+#define HUD_H       122             /* debug HUD below device                 */
+#define WIN_W       DEV_W           /* 680  */
+#define WIN_H       (DEV_H + HUD_H) /* 490  */
+
 extern bool global_vibro_on;
 extern float global_sound_freq;
 extern float global_sound_volume;
@@ -56,16 +70,35 @@ static float s_time = 0;
 #include <termios.h>
 
 Gui* gui_alloc() {
-    Gui* gui = malloc(sizeof(Gui));
+    Gui* gui = calloc(1, sizeof(Gui));
     gui->canvas = canvas_init();
     return gui;
 }
 
+void gui_free(Gui* gui) {
+    if(gui == NULL) {
+        return;
+    }
+
+    if(gui->view_port != NULL) {
+        gui_remove_view_port(gui, gui->view_port);
+    }
+
+    if(gui->canvas != NULL) {
+        canvas_free(gui->canvas);
+        gui->canvas = NULL;
+    }
+
+    free(gui);
+}
+
 void exit_sdl(uint8_t code) {
-    // FIXME: crashes when exiting
-    // SDL_DestroyRenderer(renderer);
-    // SDL_DestroyWindow(window);
-    // SDL_Quit();
+    if(furi_record_status()) {
+        Gui* gui = furi_record_open(RECORD_GUI);
+        if(gui != NULL) {
+            gui_free(gui);
+        }
+    }
     tcsetattr(STDIN_FILENO, TCSANOW, &global_old_tio);
     exit(code);
 }
@@ -124,16 +157,21 @@ static void* input_loop(void* _view_port) {
         for(uint8_t i = 0; i < BUTTONS_COUNT; i++) {
             if(!held_down[i]) continue;
             if(held_time[i] % INPUT_PRESS_TICKS == 0 && held_time[i] != 0) {
-                InputEvent* e = malloc(sizeof(InputEvent));
-                e->key = key_map[i];
+                if(view_port->input_callback == NULL) {
+                    held_time[i]++;
+                    continue;
+                }
+
+                InputEvent e = {0};
+                e.key = key_map[i];
                 uint32_t presses = held_time[i] / INPUT_PRESS_TICKS;
                 if(presses < INPUT_LONG_PRESS_COUNTS && presses > 0)
-                    e->type = InputTypeShort;
+                    e.type = InputTypeShort;
                 else if(presses == INPUT_LONG_PRESS_COUNTS)
-                    e->type = InputTypeLong;
+                    e.type = InputTypeLong;
                 else if(presses != 0)
-                    e->type = InputTypeRepeat;
-                view_port->input_callback(e, view_port->input_callback_context);
+                    e.type = InputTypeRepeat;
+                view_port->input_callback(&e, view_port->input_callback_context);
             }
             held_time[i]++;
         }
@@ -158,25 +196,29 @@ static void* handle_input(void* _view_port) {
                     continue;
                 }
 
-                InputEvent* e = malloc(sizeof(InputEvent));
-                e->type = event.type == SDL_KEYDOWN ? InputTypePress : InputTypeRelease;
-                bool flag = true;
-                uint8_t key;
+                int8_t key = -1;
                 if(event.key.keysym.sym == SDLK_UP) key = 0;
                 else if(event.key.keysym.sym == SDLK_DOWN) key = 1;
                 else if(event.key.keysym.sym == SDLK_LEFT) key = 3;
                 else if(event.key.keysym.sym == SDLK_RIGHT) key = 2;
                 else if(event.key.keysym.sym == SDLK_z) key = 4;
                 else if(event.key.keysym.sym == SDLK_x) key = 5;
-                else flag = false;
-                if(!held_down[key] || event.type == SDL_KEYUP) {
-                    if(flag) {
-                        held_time[key] = 0;
-                        held_down[key] = event.type == SDL_KEYDOWN;
-                        e->key = key_map[key];
+
+                if(key < 0) {
+                    continue;
+                }
+
+                if(!held_down[(uint8_t)key] || event.type == SDL_KEYUP) {
+                    held_time[(uint8_t)key] = 0;
+                    held_down[(uint8_t)key] = event.type == SDL_KEYDOWN;
+
+                    if(view_port->input_callback != NULL) {
+                        InputEvent e = {
+                            .type = event.type == SDL_KEYDOWN ? InputTypePress : InputTypeRelease,
+                            .key = key_map[(uint8_t)key],
+                        };
+                        view_port->input_callback(&e, view_port->input_callback_context);
                     }
-                    if(view_port->input_callback != NULL && flag)
-                        view_port->input_callback(e, view_port->input_callback_context);
                 }
             }
         }
@@ -218,6 +260,23 @@ static void renderMessage(const char* msg, int x, int y) {
 #endif
 }
 
+static void render_screen_bg(void) {
+    const float bl = global_backlight_brightness / 255.0f;
+    const uint8_t r = (uint8_t)(0x30 + bl * (0xff - 0x30));
+    const uint8_t g = (uint8_t)(0x14 + bl * (0x88 - 0x14));
+    SDL_SetRenderDrawColor(renderer, r, g, 0x00, 0xff);
+    SDL_Rect sr = {BZL_L, BZL_T, SCR_W, SCR_H};
+    SDL_RenderFillRect(renderer, &sr);
+}
+
+static void render_led_indicator(void) {
+    SDL_SetRenderDrawColor(renderer, global_led[0], global_led[1], global_led[2], 0xff);
+    SDL_Rect led = {BZL_L + SCR_W - 14, (BZL_T - 8) / 2, 8, 8};
+    SDL_RenderFillRect(renderer, &led);
+    SDL_SetRenderDrawColor(renderer, 0x55, 0x55, 0x55, 0xff);
+    SDL_RenderDrawRect(renderer, &led);
+}
+
 static void render_debug_grid(void) {
     if(!show_debug_grid) {
         return;
@@ -225,15 +284,23 @@ static void render_debug_grid(void) {
 
     SDL_SetRenderDrawColor(renderer, 0xd8, 0x94, 0x38, 0xff);
     for(int x = 0; x <= 128; x += 8) {
-        SDL_RenderDrawLine(renderer, x * 5, 0, x * 5, 64 * 5);
+        SDL_RenderDrawLine(renderer, BZL_L + x * SCR_SCALE, BZL_T, BZL_L + x * SCR_SCALE, BZL_T + SCR_H);
     }
     for(int y = 0; y <= 64; y += 8) {
-        SDL_RenderDrawLine(renderer, 0, y * 5, 128 * 5, y * 5);
+        SDL_RenderDrawLine(renderer, BZL_L, BZL_T + y * SCR_SCALE, BZL_L + SCR_W, BZL_T + y * SCR_SCALE);
     }
 
     SDL_SetRenderDrawColor(renderer, 0xb8, 0x70, 0x20, 0xff);
-    SDL_RenderDrawLine(renderer, 64 * 5, 0, 64 * 5, 64 * 5);
-    SDL_RenderDrawLine(renderer, 0, 32 * 5, 128 * 5, 32 * 5);
+    SDL_RenderDrawLine(renderer, BZL_L + 64 * SCR_SCALE, BZL_T, BZL_L + 64 * SCR_SCALE, BZL_T + SCR_H);
+    SDL_RenderDrawLine(renderer, BZL_L, BZL_T + 32 * SCR_SCALE, BZL_L + SCR_W, BZL_T + 32 * SCR_SCALE);
+}
+
+static void gui_join_thread_if_needed(pthread_t thread_id) {
+    if(pthread_equal(pthread_self(), thread_id)) {
+        return;
+    }
+
+    pthread_join(thread_id, NULL);
 }
 
 // TODO: multiple viewports support
@@ -246,66 +313,76 @@ static void* handle_gui(void* _view_port) {
         }
 
         const uint8_t* committed_buffer = canvas_get_committed_buffer(view_port->gui->canvas);
-        
-        SDL_SetRenderDrawColor(renderer, 0xff, 0x82, 0x00, 0xff);
+
+        SDL_SetRenderDrawColor(renderer, 0x1a, 0x1a, 0x1a, 0xff);
         SDL_RenderClear(renderer);
+
+        render_screen_bg();
+
         render_debug_grid();
+
         SDL_SetRenderDrawColor(renderer, 0x00, 0x00, 0x00, 0xff);
-
-        if(show_host_hud) {
-            rect.x = 0;
-            rect.y = 320;
-            rect.w = 640;
-            rect.h = 3;
-            SDL_RenderDrawRect(renderer, &rect);
-            SDL_RenderFillRect(renderer, &rect);
-
-            char msg_vibro[16];
-            char msg_led[16];
-            char msg_bl[18];
-
-            snprintf(msg_vibro, sizeof(msg_vibro), "Vibro: %s", global_vibro_on ? "On" : "Off");
-            renderMessage(msg_vibro, 20, 340);
-            snprintf(
-                msg_led,
-                sizeof(msg_led),
-                "LED: #%02x%02x%02x",
-                global_led[0],
-                global_led[1],
-                global_led[2]);
-            renderMessage(msg_led, 20, 380);
-            snprintf(msg_bl, sizeof(msg_bl), "Backlight: 0x%02x", global_backlight_brightness);
-            renderMessage(msg_bl, 20, 420);
-        }
-
-        for(uint8_t x = 0; x < view_port->width / 8; x++) // Tile X
-            for(uint8_t y = 0; y < view_port->height / 8; y++) // Tile Y
-                //if(canvas_get_buffer(view_port->gui->canvas)[view_port->gui->canvas->offset_x + x + (view_port->gui->canvas->offset_y + y) * view_port->width] != 1)
-                //    continue;
-                for(uint8_t i = 0; i < 8; i++) // Tile row
-                    for(uint8_t j = 0; j < 8; j++) { // Tile column
+        for(uint8_t x = 0; x < view_port->width / 8; x++)
+            for(uint8_t y = 0; y < view_port->height / 8; y++)
+                for(uint8_t i = 0; i < 8; i++)
+                    for(uint8_t j = 0; j < 8; j++) {
                         if(!(committed_buffer[x * 8 + y * view_port->width + i] & (1 << j))) continue;
-                        rect.x = (8 * x + i) * 5;
-                        rect.y = (8 * y + j) * 5;
-                        rect.w = 5;
-                        rect.h = 5;
-                        SDL_RenderDrawRect(renderer, &rect);
+                        rect.x = BZL_L + (8 * x + i) * SCR_SCALE;
+                        rect.y = BZL_T + (8 * y + j) * SCR_SCALE;
+                        rect.w = SCR_SCALE;
+                        rect.h = SCR_SCALE;
                         SDL_RenderFillRect(renderer, &rect);
                     }
+
+        render_led_indicator();
+
+        if(show_host_hud) {
+            SDL_SetRenderDrawColor(renderer, 0x8a, 0x5a, 0x20, 0xff);
+            rect.x = 0; rect.y = DEV_H; rect.w = WIN_W; rect.h = 2;
+            SDL_RenderFillRect(renderer, &rect);
+
+            SDL_SetRenderDrawColor(renderer, 0x8a, 0x5a, 0x20, 0xff);
+            rect.x = 0; rect.y = DEV_H; rect.w = WIN_W; rect.h = 2;
+            SDL_RenderFillRect(renderer, &rect);
+
+            SDL_SetRenderDrawColor(renderer, 0xd6, 0x9a, 0x43, 0xff);
+            rect.x = 0; rect.y = DEV_H + 2; rect.w = WIN_W; rect.h = HUD_H - 2;
+            SDL_RenderFillRect(renderer, &rect);
+
+            char msg_vibro[20];
+            char msg_led[24];
+            char msg_bl[24];
+            snprintf(msg_vibro, sizeof(msg_vibro), "Vibro: %s", global_vibro_on ? "On" : "Off");
+            snprintf(
+                msg_led, sizeof(msg_led),
+                "LED: #%02x%02x%02x",
+                global_led[0], global_led[1], global_led[2]);
+            snprintf(msg_bl, sizeof(msg_bl), "Backlight: %u/255", global_backlight_brightness);
+            renderMessage(msg_vibro, 20, DEV_H + 12);
+            renderMessage(msg_led,   20, DEV_H + 48);
+            renderMessage(msg_bl,    20, DEV_H + 84);
+        }
+
         SDL_RenderPresent(renderer);
-        // ~60 FPS
+        /* ~60 FPS */
         #ifdef _WIN32
-            Sleep(16); // 16ms
+            Sleep(16);
         #else
-            usleep(16666); // 16.666 ms
+            usleep(16666);
         #endif
     }
-    return NULL;   
+    return NULL;
 }
 void gui_add_view_port(Gui* gui, ViewPort* view_port, GuiLayer layer) {
     UNUSED(layer);
     furi_assert(gui);
     furi_assert(view_port);
+    furi_check(gui->view_port == NULL);
+
+    running = true;
+    memset(held_down, 0, sizeof(held_down));
+    memset(held_time, 0, sizeof(held_time));
+
     gui->view_port = view_port;
     view_port->gui = gui;
 
@@ -317,8 +394,11 @@ void gui_add_view_port(Gui* gui, ViewPort* view_port, GuiLayer layer) {
     SDL_SetHint(SDL_HINT_RENDER_DRIVER, "software");
     SDL_Init(SDL_INIT_VIDEO);
     SDL_Init(SDL_INIT_AUDIO);
-    SDL_CreateWindowAndRenderer(640, 480, 0, &window, &renderer);
+    SDL_CreateWindowAndRenderer(WIN_W, WIN_H, 0, &window, &renderer);
     SDL_SetWindowTitle(window, FLIPPULATOR_APP_NAME);
+
+    /* Keep screen readable from app start; app code can still dim/turn off later. */
+    global_backlight_brightness = 0xFF;
 
     SDL_zero(audio_spec);
     audio_spec.freq = AUDIO_FREQUENCY;
@@ -332,17 +412,54 @@ void gui_add_view_port(Gui* gui, ViewPort* view_port, GuiLayer layer) {
 
     SDL_PauseAudioDevice(audio_device, 0);
 
-    pthread_t draw_thread_id;
-    pthread_create(&draw_thread_id, NULL, handle_gui, view_port);
-    pthread_t input_thread_id;
-    pthread_create(&input_thread_id, NULL, handle_input, view_port);
-    pthread_t input_loop_id;
-    pthread_create(&input_loop_id, NULL, input_loop, view_port);
+    pthread_create(&gui->draw_thread_id, NULL, handle_gui, view_port);
+    pthread_create(&gui->input_thread_id, NULL, handle_input, view_port);
+    pthread_create(&gui->input_loop_id, NULL, input_loop, view_port);
+    gui->sdl_started = true;
 }
 void gui_remove_view_port(Gui* gui, ViewPort* view_port) {
-    UNUSED(gui);
-    UNUSED(view_port);
-    // TODO
+    furi_assert(gui);
+    furi_assert(view_port);
+
+    if(gui->view_port != view_port) {
+        return;
+    }
+
+    if(gui->sdl_started) {
+        running = false;
+
+        gui_join_thread_if_needed(gui->draw_thread_id);
+        gui_join_thread_if_needed(gui->input_thread_id);
+        gui_join_thread_if_needed(gui->input_loop_id);
+
+        if(audio_device != 0U) {
+            SDL_CloseAudioDevice(audio_device);
+            audio_device = 0U;
+        }
+
+#if FLIPPULATOR_HAS_SDL_TTF
+        if(HaxrCorp4089 != NULL) {
+            TTF_CloseFont(HaxrCorp4089);
+            HaxrCorp4089 = NULL;
+        }
+        TTF_Quit();
+#endif
+
+        if(renderer != NULL) {
+            SDL_DestroyRenderer(renderer);
+            renderer = NULL;
+        }
+        if(window != NULL) {
+            SDL_DestroyWindow(window);
+            window = NULL;
+        }
+        SDL_Quit();
+
+        gui->sdl_started = false;
+    }
+
+    view_port->gui = NULL;
+    gui->view_port = NULL;
 }
 
 int32_t gui_srv(void* p) {

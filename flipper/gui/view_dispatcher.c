@@ -144,7 +144,12 @@ ViewDispatcher* view_dispatcher_alloc(void) {
 void view_dispatcher_free(ViewDispatcher* view_dispatcher) {
     furi_assert(view_dispatcher);
     if(view_dispatcher->view_port != NULL) {
+        if(view_dispatcher->gui != NULL) {
+            gui_remove_view_port(view_dispatcher->gui, view_dispatcher->view_port);
+            view_dispatcher->gui = NULL;
+        }
         view_port_free(view_dispatcher->view_port);
+        view_dispatcher->view_port = NULL;
     }
     furi_message_queue_free(view_dispatcher->input_queue);
     furi_message_queue_free(view_dispatcher->event_queue);
