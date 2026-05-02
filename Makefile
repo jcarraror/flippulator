@@ -19,6 +19,7 @@ OUT_CR = $(OUT_DIR)copyright.txt
 OUT_ALL = $(OUT_DIR) $(OUT_APP)
 TEST_DIR = out_tests/
 TEST_CORE_PRIMITIVES = $(TEST_DIR)core_primitives_test
+TEST_INPUT_EVENTS = $(TEST_DIR)input_events_test
 #OUT_LIB_NAME = flipper
 #OUT_LIB = lib$(OUT_LIB_NAME).a
 #CC_PREFIX = gcc -c -Wall# -fPIC
@@ -39,6 +40,15 @@ all: $(OUT_ALL)
 
 test-core-primitives: $(TEST_CORE_PRIMITIVES)
 	./$(TEST_CORE_PRIMITIVES)
+
+test-input-events: $(TEST_INPUT_EVENTS)
+	./$(TEST_INPUT_EVENTS)
+
+test-all: test-core-primitives test-input-events
+
+$(TEST_INPUT_EVENTS): tests/input_events_test.c
+	mkdir -p $(TEST_DIR)
+	gcc $(WARN_FLAGS) -g $(ARCH_FLAGS) $(CC_USER_EXTRA) -D_FLIPPULATOR -I$(LIBS) -I$(LIBS_HAL) -I$(HELPERS) -I$(EXT_LIB_ALL) tests/input_events_test.c -o $(TEST_INPUT_EVENTS)
 
 $(TEST_CORE_PRIMITIVES): tests/core_primitives_test.c flipper/core/mutex.c flipper/core/semaphore.c flipper/core/event_flag.c flipper/core/kernel.c
 	mkdir -p $(TEST_DIR)

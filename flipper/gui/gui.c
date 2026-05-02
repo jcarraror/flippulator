@@ -146,6 +146,7 @@ static void sound_cb(void* ctx, uint8_t* stream, int len) {
 
 static bool held_down[BUTTONS_COUNT];
 static uint64_t held_time[BUTTONS_COUNT];
+static bool long_fired[BUTTONS_COUNT];
 static InputKey key_map[] = {
     InputKeyUp, InputKeyDown, InputKeyRight,
     InputKeyLeft, InputKeyOk, InputKeyBack
@@ -165,12 +166,16 @@ static void* input_loop(void* _view_port) {
                 InputEvent e = {0};
                 e.key = key_map[i];
                 uint32_t presses = held_time[i] / INPUT_PRESS_TICKS;
-                if(presses < INPUT_LONG_PRESS_COUNTS && presses > 0)
-                    e.type = InputTypeShort;
-                else if(presses == INPUT_LONG_PRESS_COUNTS)
+                if(presses == INPUT_LONG_PRESS_COUNTS) {
                     e.type = InputTypeLong;
-                else if(presses != 0)
+                    long_fired[i] = true;
+                } else if(presses > INPUT_LONG_PRESS_COUNTS) {
                     e.type = InputTypeRepeat;
+                } else {
+                    /* still within short window wait for release */
+                    held_time[i]++;
+                    continue;
+                }
                 view_port->input_callback(&e, view_port->input_callback_context);
             }
             held_time[i]++;
@@ -209,15 +214,37 @@ static void* handle_input(void* _view_port) {
                 }
 
                 if(!held_down[(uint8_t)key] || event.type == SDL_KEYUP) {
-                    held_time[(uint8_t)key] = 0;
                     held_down[(uint8_t)key] = event.type == SDL_KEYDOWN;
 
                     if(view_port->input_callback != NULL) {
-                        InputEvent e = {
-                            .type = event.type == SDL_KEYDOWN ? InputTypePress : InputTypeRelease,
-                            .key = key_map[(uint8_t)key],
-                        };
-                        view_port->input_callback(&e, view_port->input_callback_context);
+                        if(event.type == SDL_KEYDOWN) {
+                            held_time[(uint8_t)key] = 0;
+                            InputEvent e = {
+                                .type = InputTypePress,
+                                .key = key_map[(uint8_t)key],
+                            };
+                            view_port->input_callback(&e, view_port->input_callback_context);
+                        } else {
+                            if(!long_fired[(uint8_t)key]) {
+                                InputEvent short_e = {
+                                    .type = InputTypeShort,
+                                    .key = key_map[(uint8_t)key],
+                                };
+                                view_port->input_callback(&short_e, view_port->input_callback_context);
+                            }
+                            long_fired[(uint8_t)key] = false;
+                            held_time[(uint8_t)key] = 0;
+                            InputEvent rel_e = {
+                                .type = InputTypeRelease,
+                                .key = key_map[(uint8_t)key],
+                            };
+                            view_port->input_callback(&rel_e, view_port->input_callback_context);
+                        }
+                    } else {
+                        held_time[(uint8_t)key] = 0;
+                        if(event.type == SDL_KEYUP) {
+                            long_fired[(uint8_t)key] = false;
+                        }
                     }
                 }
             }

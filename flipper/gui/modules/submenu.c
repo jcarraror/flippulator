@@ -57,7 +57,7 @@ static bool submenu_input_callback(InputEvent* event, void* context) {
         return false;
     }
 
-    if(event->type != InputTypePress && event->type != InputTypeRepeat && event->type != InputTypeShort) {
+    if(event->type != InputTypeShort && event->type != InputTypeRepeat) {
         return false;
     }
 
@@ -85,7 +85,7 @@ static bool submenu_input_callback(InputEvent* event, void* context) {
         SubmenuItem* item = &submenu->items[submenu->selected_position];
         if(item->callback_ex != NULL) {
             item->callback_ex(item->context, event->type, item->index);
-        } else if(item->callback != NULL && event->type == InputTypePress) {
+        } else if(item->callback != NULL && event->type == InputTypeShort) {
             item->callback(item->context, item->index);
         }
         return true;
