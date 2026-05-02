@@ -7,8 +7,9 @@
 #include "base.h"
 #include "thread.h"
 #include <limits.h>
+#include <pthread.h>
 
-#define SEMAPHORE_NO_OWNER ULONG_MAX
+#define SEMAPHORE_NO_OWNER ((FuriThreadId)0)
 
 #ifdef __cplusplus
 extern "C" {
@@ -17,7 +18,8 @@ extern "C" {
 typedef struct {
     uint32_t max;
     uint32_t count;
-    size_t* owners;
+    pthread_mutex_t lock;
+    pthread_cond_t cond;
 } FuriSemaphore;
 
 /** Allocate semaphore

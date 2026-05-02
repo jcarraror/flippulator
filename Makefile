@@ -17,6 +17,8 @@ SRC_FONT = haxrcorp-4089.ttf
 OUT_FONT = $(OUT_DIR)haxrcorp-4089.ttf
 OUT_CR = $(OUT_DIR)copyright.txt
 OUT_ALL = $(OUT_DIR) $(OUT_APP)
+TEST_DIR = out_tests/
+TEST_CORE_PRIMITIVES = $(TEST_DIR)core_primitives_test
 #OUT_LIB_NAME = flipper
 #OUT_LIB = lib$(OUT_LIB_NAME).a
 #CC_PREFIX = gcc -c -Wall# -fPIC
@@ -34,6 +36,13 @@ TIMESTAMPS = timestamps.json
 TIMESTAMPS_TMP = /tmp/flippulator_timestamps.json
 
 all: $(OUT_ALL)
+
+test-core-primitives: $(TEST_CORE_PRIMITIVES)
+	./$(TEST_CORE_PRIMITIVES)
+
+$(TEST_CORE_PRIMITIVES): tests/core_primitives_test.c flipper/core/mutex.c flipper/core/semaphore.c flipper/core/event_flag.c flipper/core/kernel.c
+	mkdir -p $(TEST_DIR)
+	gcc $(WARN_FLAGS) -g $(ARCH_FLAGS) $(CC_USER_EXTRA) -D_FLIPPULATOR -I$(LIBS) -I$(LIBS_HAL) -I$(HELPERS) -I$(EXT_LIB_ALL) tests/core_primitives_test.c flipper/core/mutex.c flipper/core/semaphore.c flipper/core/event_flag.c flipper/core/kernel.c -o $(TEST_CORE_PRIMITIVES) -pthread
 
 $(OUT_DIR): $(OUT_APP) $(SRC_FONT)
 	cp $(SRC_FONT) $(OUT_FONT)

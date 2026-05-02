@@ -63,7 +63,7 @@ That script:
 
 ## TODOs
 - [x] Use ~~GTK~~ SDL instead of ncurses
-- [ ] Write support for FuriTypes (FuriString, FuriMutex, etc.)
+- [x] Write support for FuriTypes (FuriString, FuriMutex, etc.)
 - [ ] Add settings to the notification service
 - [ ] Storage CLI
 - [ ] Remove code duplicating in storage_ext.c and storage_int.c

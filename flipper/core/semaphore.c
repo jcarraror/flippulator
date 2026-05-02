@@ -1,75 +1,95 @@
 #include "semaphore.h"
 #include "check.h"
-#include "kernel.h"
-#include <time.h>
+#include "common_defines.h"
+#include <errno.h>
 #include <string.h>
+#include <time.h>
 
-typedef struct {
-    FuriSemaphore* semaphore;
-    FuriThreadId id;
-    bool* done;
-} FuriSemaphoreCtx;
-
-FuriSemaphore* furi_semaphore_alloc(uint32_t max_count, uint32_t initial_count) {
-    FuriSemaphore* semaphore = malloc(sizeof(FuriSemaphore));
-    semaphore->max = max_count;
-    semaphore->count = initial_count;
-    semaphore->owners = malloc(sizeof(size_t) * max_count);
-    for(unsigned int i = 0; i < initial_count; i++)
-        semaphore->owners[i] = SEMAPHORE_NO_OWNER;
-    return semaphore;
+static void furi_semaphore_timeout_to_abs(uint32_t timeout, struct timespec* ts) {
+    clock_gettime(CLOCK_REALTIME, ts);
+    ts->tv_sec += (time_t)(timeout / 1000U);
+    ts->tv_nsec += (long)((timeout % 1000U) * 1000000UL);
+    if(ts->tv_nsec >= 1000000000L) {
+        ts->tv_sec += 1;
+        ts->tv_nsec -= 1000000000L;
+    }
 }
 
-static void* acquire_cb(void* ctx_) {
-    FuriSemaphoreCtx* ctx = ctx_;
-    while(furi_semaphore_get_count(ctx->semaphore) == ctx->semaphore->max)
-        furi_delay_tick(1);
-    ctx->semaphore->owners[ctx->semaphore->count++] = (size_t)ctx->id;
-    (*ctx->done) = true;
-    return NULL;
+FuriSemaphore* furi_semaphore_alloc(uint32_t max_count, uint32_t initial_count) {
+    FuriSemaphore* semaphore = calloc(1, sizeof(FuriSemaphore));
+    furi_check(semaphore != NULL);
+    furi_check(max_count > 0U);
+    furi_check(initial_count <= max_count);
+
+    semaphore->max = max_count;
+    semaphore->count = initial_count;
+
+    pthread_mutex_init(&semaphore->lock, NULL);
+    pthread_cond_init(&semaphore->cond, NULL);
+    return semaphore;
 }
 
 void furi_semaphore_free(FuriSemaphore* instance) {
     furi_assert(instance);
-    
-    free(instance->owners);
+
+    pthread_cond_destroy(&instance->cond);
+    pthread_mutex_destroy(&instance->lock);
     free(instance);
 }
 
 FuriStatus furi_semaphore_acquire(FuriSemaphore* instance, uint32_t timeout) {
     furi_assert(instance);
 
-    pthread_t thread_id;
-    FuriThreadId id = furi_thread_get_current_id();
-    bool done = false;
-    FuriSemaphoreCtx ctx = { instance, (FuriThreadId)id, &done };
-    pthread_create(&thread_id, NULL, acquire_cb, &ctx);
-    uint64_t start_time = (uint64_t)time(NULL);
-    while(true) {
-        furi_delay_tick(1);
-        if(done) return FuriStatusOk;
-        if((uint64_t)time(NULL) >= start_time + timeout / 1000.0) {
-            pthread_cancel(thread_id);
+    pthread_mutex_lock(&instance->lock);
+
+    if(timeout == FuriWaitForever) {
+        while(instance->count == 0U) {
+            pthread_cond_wait(&instance->cond, &instance->lock);
+        }
+    } else if(timeout == 0U) {
+        if(instance->count == 0U) {
+            pthread_mutex_unlock(&instance->lock);
             return FuriStatusErrorTimeout;
         }
+    } else {
+        struct timespec abs_timeout;
+        furi_semaphore_timeout_to_abs(timeout, &abs_timeout);
+        while(instance->count == 0U) {
+            const int result = pthread_cond_timedwait(&instance->cond, &instance->lock, &abs_timeout);
+            if(result == ETIMEDOUT) {
+                pthread_mutex_unlock(&instance->lock);
+                return FuriStatusErrorTimeout;
+            }
+        }
     }
-    return FuriStatusError;
+
+    instance->count--;
+
+    pthread_mutex_unlock(&instance->lock);
+    return FuriStatusOk;
 }
 
 FuriStatus furi_semaphore_release(FuriSemaphore* instance) {
     furi_assert(instance);
 
-    size_t id = (size_t)furi_thread_get_current_id();
-    for(unsigned int i = 0; i < instance->count; i++)
-        if(instance->owners[i] == id) {
-            memcpy(&instance->owners[i], &instance->owners[i + 1], instance->count - i - 1);
-            return FuriStatusOk;
-        }
-    return FuriStatusErrorResource;
+    pthread_mutex_lock(&instance->lock);
+
+    if(instance->count == instance->max) {
+        pthread_mutex_unlock(&instance->lock);
+        return FuriStatusErrorResource;
+    }
+
+    instance->count++;
+    pthread_cond_signal(&instance->cond);
+    pthread_mutex_unlock(&instance->lock);
+    return FuriStatusOk;
 }
 
 uint32_t furi_semaphore_get_count(FuriSemaphore* instance) {
     furi_assert(instance);
 
-    return instance->count;
+    pthread_mutex_lock(&instance->lock);
+    const uint32_t count = instance->count;
+    pthread_mutex_unlock(&instance->lock);
+    return count;
 }

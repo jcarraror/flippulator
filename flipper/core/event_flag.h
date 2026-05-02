@@ -6,12 +6,17 @@
 
 #include "base.h"
 #include "kernel.h"
+#include <pthread.h>
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-typedef uint32_t FuriEventFlag;
+typedef struct {
+    uint32_t flags;
+    pthread_mutex_t lock;
+    pthread_cond_t cond;
+} FuriEventFlag;
 
 /** Allocate FuriEventFlag
  *

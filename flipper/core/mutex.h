@@ -6,8 +6,9 @@
 
 #include "base.h"
 #include "thread.h"
+#include <pthread.h>
 
-#define MUTEX_NO_OWNER 0xFFFFFFFF
+#define MUTEX_NO_OWNER ((FuriThreadId)0)
 
 #ifdef __cplusplus
 extern "C" {
@@ -19,8 +20,11 @@ typedef enum {
 } FuriMutexType;
 
 typedef struct {
-    size_t type;
-    size_t owner;
+    FuriMutexType type;
+    FuriThreadId owner;
+    uint32_t lock_count;
+    pthread_mutex_t lock;
+    pthread_cond_t cond;
 } FuriMutex;
 
 /** Allocate FuriMutex
